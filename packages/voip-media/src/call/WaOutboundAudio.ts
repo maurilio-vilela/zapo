@@ -271,7 +271,11 @@ export class WaOutboundAudio {
             return
         }
 
-        const bundles = this.audioFramesPerPacket > 1 && (frame[0] & MLOW_TOC_VAD) !== 0
+        // Standard Opus frames go out one per packet: the repacketizer only builds SMPL multiframes.
+        const bundles =
+            this.audioFramesPerPacket > 1 &&
+            !codec.plainOpusActive &&
+            (frame[0] & MLOW_TOC_VAD) !== 0
         const pending = this.pendingAudio
         if (pending && bundles && !marker) {
             const packet = this.packAudio(codec, pending, frame)

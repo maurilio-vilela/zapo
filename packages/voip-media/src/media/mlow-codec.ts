@@ -130,6 +130,16 @@ export class MLowCodec {
         return this.encoder?.redActive ?? false
     }
 
+    /** Whether the encoder follows a peer that sends standard Opus; see {@link decodeSequenced}. */
+    get plainOpusActive(): boolean {
+        return this.encoder?.plainOpusActive ?? false
+    }
+
+    /** Whether the peer's PT 120 stream is standard Opus rather than SMPL. */
+    get peerSendsPlainOpus(): boolean {
+        return this.decoder.peerSendsPlainOpus
+    }
+
     /** RED copy of the frame the last encode took, a fresh array, or `null` with RED off. */
     get lastSecondary(): Uint8Array | null {
         return this.encoder?.lastSecondary ?? null
@@ -171,7 +181,20 @@ export class MLowCodec {
         stream: 0 | 1 = 0,
         read?: MlowPacketRead
     ): MLowDecodeOutcome {
-        return this.decoder.decodeSequenced(seq, packet, onFrame, timestamp, stream, read)
+        const outcome = this.decoder.decodeSequenced(seq, packet, onFrame, timestamp, stream, read)
+        // Answer in the codec the peer speaks: a client that sends standard Opus may not decode
+        // SMPL, and the call would be silent on its side.
+        const plain = this.decoder.peerSendsPlainOpus
+        if (
+            this.encoder &&
+            this.encoder.plainOpusActive !== plain &&
+            this.encoder.setPlainOpus(plain)
+        ) {
+            this.logger.debug('mlow encoder follows the peer codec', {
+                codec: plain ? 'opus' : 'smpl'
+            })
+        }
+        return outcome
     }
 
     /**

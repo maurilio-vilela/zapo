@@ -316,6 +316,9 @@ export class WaMlowDecoder {
                 plainOpus: plain,
                 message: toError(err).message
             })
+            // A fresh run of consistent steps is needed before the next try.
+            this.opusVotes = 0
+            this.smplVotes = 0
             return
         }
         this.plainOpus = plain
@@ -337,7 +340,17 @@ export class WaMlowDecoder {
         onFrame: (pcm: Float32Array) => void
     ): boolean {
         if (missing > 0) {
-            this.concealer.concealGap(missing, packet, onFrame)
+            // Packets of 60 and 120 ms mix on this stream: fill the hole the timeline shows.
+            if (timestamp !== undefined && this.playedUntil >= 0) {
+                this.concealUntil(
+                    timestamp >>> 0,
+                    missing * MAX_LOST_PACKET_SAMPLES,
+                    packet,
+                    onFrame
+                )
+            } else {
+                this.concealer.concealGap(missing, packet, onFrame)
+            }
         }
         const decoded = this.tryDecode(packet)
         if (decoded === null) {

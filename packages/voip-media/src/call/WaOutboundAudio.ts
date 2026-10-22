@@ -270,6 +270,8 @@ export class WaOutboundAudio {
             this.packetizeRed(codec, frame, timestamp, marker, captureMs)
             return
         }
+        // Off the RED path the copy kept for the next packet would sit on a stale timestamp.
+        this.previousSecondary = null
 
         // Standard Opus frames go out one per packet: the repacketizer only builds SMPL multiframes.
         const bundles =

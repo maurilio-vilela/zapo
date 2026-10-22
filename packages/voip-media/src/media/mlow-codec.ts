@@ -62,6 +62,8 @@ export class MLowCodec {
     private readonly logger: Logger
     private readonly decoder: WaMlowDecoder
     private encoder: WaMlowEncoder | null = null
+    /** The encoder mode a switch failed for: not tried again until the peer's codec changes. */
+    private failedEncoderMode: boolean | null = null
 
     private constructor(decoder: WaMlowDecoder, logger: Logger) {
         this.decoder = decoder
@@ -185,14 +187,21 @@ export class MLowCodec {
         // Answer in the codec the peer speaks: a client that sends standard Opus may not decode
         // SMPL, and the call would be silent on its side.
         const plain = this.decoder.peerSendsPlainOpus
+        if (this.failedEncoderMode !== null && this.failedEncoderMode !== plain) {
+            this.failedEncoderMode = null
+        }
         if (
             this.encoder &&
             this.encoder.plainOpusActive !== plain &&
-            this.encoder.setPlainOpus(plain)
+            this.failedEncoderMode === null
         ) {
-            this.logger.debug('mlow encoder follows the peer codec', {
-                codec: plain ? 'opus' : 'smpl'
-            })
+            if (this.encoder.setPlainOpus(plain)) {
+                this.logger.debug('mlow encoder follows the peer codec', {
+                    codec: plain ? 'opus' : 'smpl'
+                })
+            } else {
+                this.failedEncoderMode = plain
+            }
         }
         return outcome
     }

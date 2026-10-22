@@ -221,3 +221,79 @@ test('the encoder answers a standard Opus peer in standard Opus, one frame per p
         codec.destroy()
     }
 })
+
+test('a lost 120 ms packet after a run of 60 ms ones is filled for its whole span', async () => {
+    const codec = await MLowCodec.create({ decodeOnly: true })
+    try {
+        const short = await plainOpusPackets(8)
+        const long = pairs(await plainOpusPackets(8))
+        const stream = [...short, ...long]
+        const lost = short.length // the first 120 ms packet; the last decoded one was 60 ms
+        let ts = 30_000
+        let emitted = 0
+        stream.forEach((packet, index) => {
+            const span = opusPacketSamples(packet)
+            if (index !== lost) {
+                codec.decodeSequenced(
+                    index + 1,
+                    packet,
+                    (pcm) => {
+                        if (index >= 4) emitted += pcm.length
+                    },
+                    ts
+                )
+            }
+            ts += span
+        })
+        const expected = stream.slice(4).reduce((sum, packet) => sum + opusPacketSamples(packet), 0)
+        assert.equal(codec.peerSendsPlainOpus, true)
+        assert.equal(emitted, expected, 'the hole is concealed as long as the timeline moved')
+    } finally {
+        codec.destroy()
+    }
+})
+
+test('a codec switch the library refuses is not retried on every packet', async () => {
+    const codec = await MLowCodec.create()
+    try {
+        const internals = codec as unknown as {
+            decoder: { lib: { decoderCtl: (request: number, value: number) => void } }
+            encoder: { encoder: { encoderCtl: (request: number, value: number) => void } }
+        }
+        let decoderCalls = 0
+        internals.decoder.lib.decoderCtl = () => {
+            decoderCalls++
+            throw new Error('refused')
+        }
+        const packets = await plainOpusPackets(12)
+        packets.forEach((packet, index) =>
+            codec.decodeSequenced(index + 1, packet, () => {}, index * FRAME)
+        )
+        assert.equal(codec.peerSendsPlainOpus, false)
+        // Three consistent steps per try: 11 steps give 3 tries, not one per packet.
+        assert.equal(decoderCalls, 3)
+    } finally {
+        codec.destroy()
+    }
+
+    const answering = await MLowCodec.create()
+    try {
+        const internals = answering as unknown as {
+            encoder: { encoder: { encoderCtl: (request: number, value: number) => void } }
+        }
+        let encoderCalls = 0
+        internals.encoder.encoder.encoderCtl = () => {
+            encoderCalls++
+            throw new Error('refused')
+        }
+        const packets = await plainOpusPackets(12)
+        packets.forEach((packet, index) =>
+            answering.decodeSequenced(index + 1, packet, () => {}, index * FRAME)
+        )
+        assert.equal(answering.peerSendsPlainOpus, true)
+        assert.equal(answering.plainOpusActive, false)
+        assert.equal(encoderCalls, 1, 'tried once while the peer codec stays the same')
+    } finally {
+        answering.destroy()
+    }
+})

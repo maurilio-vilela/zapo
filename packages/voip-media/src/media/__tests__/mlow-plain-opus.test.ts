@@ -297,3 +297,41 @@ test('a codec switch the library refuses is not retried on every packet', async 
         answering.destroy()
     }
 })
+
+test('a frame held for bundling before the switch to standard Opus is not sent', async () => {
+    const codec = await MLowCodec.create()
+    try {
+        const time = { ms: 1_000 }
+        const clock = new WaMediaClock(() => time.ms)
+        clock.start()
+        const sent: Uint8Array[] = []
+        const outbound = new WaOutboundAudio({
+            logger: createNoopLogger(),
+            clock,
+            send: (payload) => sent.push(payload.slice())
+        })
+        outbound.setFramesPerPacket(2)
+        // One voiced SMPL frame waits for its pair.
+        outbound.encode(codec, voicedFrame(0), time.ms)
+        time.ms += 60
+        assert.equal(sent.length, 0, 'held for bundling')
+
+        // The peer turns out to send standard Opus: the encoder follows.
+        const packets = await plainOpusPackets(6)
+        packets.forEach((packet, index) =>
+            codec.decodeSequenced(index + 1, packet, () => {}, index * FRAME)
+        )
+        assert.equal(codec.plainOpusActive, true)
+
+        for (let index = 1; index < 4; index++) {
+            outbound.encode(codec, voicedFrame(index * FRAME), time.ms)
+            time.ms += 60
+        }
+        assert.ok(sent.length >= 2, `frames went out (${sent.length})`)
+        for (const payload of sent) {
+            assert.equal(payload[0] >> 3, SILK_WB_60MS, 'only standard Opus after the switch')
+        }
+    } finally {
+        codec.destroy()
+    }
+})

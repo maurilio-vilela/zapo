@@ -273,6 +273,10 @@ export class WaOutboundAudio {
         // Off the RED path the copy kept for the next packet would sit on a stale timestamp.
         this.previousSecondary = null
 
+        // A frame held for bundling was encoded as SMPL; after the switch to standard Opus it
+        // would reach a peer that cannot decode it. Drop it: the receiver conceals that slot.
+        if (this.pendingAudio && codec.plainOpusActive) this.pendingAudio = null
+
         // Standard Opus frames go out one per packet: the repacketizer only builds SMPL multiframes.
         const bundles =
             this.audioFramesPerPacket > 1 &&
